@@ -255,9 +255,9 @@ class Accumulator:
 def evaluate_accuracy(net, data_iter):
     """
     计算在指定数据集上的预测正确率
-    :param net:
-    :param data_iter:
-    :return:
+    :param net: 模型
+    :param data_iter: 数据集
+    :return: 正确率
     """
     if isinstance(net, torch.nn.Module):
         net.eval()  # 模型进入评估模式
@@ -266,6 +266,23 @@ def evaluate_accuracy(net, data_iter):
         for X, y in data_iter:
             y_hat = net(X)
             metric.add(accuracy(y_hat, y), y.numel())
+    return metric[0] / metric[1]
+
+
+def evaluate_loss(net, data_iter, loss):  # @save
+    """
+    评估给定数据集上模型的损失
+    :param net: 模型
+    :param data_iter: 数据集
+    :param loss: 损失函数
+    :return: 平均损失
+    """
+    metric = Accumulator(2)  # 损失的总和,样本数量
+    for X, y in data_iter:
+        out = net(X)
+        y = y.reshape(out.shape)
+        l = loss(out, y)
+        metric.add(l.sum(), l.numel())
     return metric[0] / metric[1]
 
 
