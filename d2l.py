@@ -292,7 +292,7 @@ class Animator:
     def __init__(self, xlabel=None, ylabel=None, legend=None, xlim=None,
                  ylim=None, xscale='linear', yscale='linear',
                  fmts=('-', 'm--', 'g-.', 'r:'), nrows=1, ncols=1,
-                 figsize=(3.5, 2.5)):
+                 figsize=(9, 5)):
         # 增量地绘制多条线
         if legend is None:
             legend = []
