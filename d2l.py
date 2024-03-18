@@ -365,8 +365,8 @@ def train_ch3(net, train_iter, test_iter, loss, num_epochs, updater):
     :param updater: 优化函数
     :return:
     """
-    animator = Animator(xlabel='周期', xlim=[1, num_epochs], ylim=[0.3, 0.9],  # x轴、y轴刻度上下限
-                        legend=['平均损失', '训练正确率', '测试正确率'], figsize=(10.5, 7.5))
+    animator = Animator(xlabel='迭代周期', xlim=[1, num_epochs], ylim=[0.3, 0.9],  # x轴、y轴刻度上下限
+                        legend=['平均损失', '训练正确率', '测试正确率'], figsize=(10.5, 6))
     train_metrics = float('inf'), 0
     test_acc = 0
     for i in range(num_epochs):
