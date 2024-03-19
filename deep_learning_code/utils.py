@@ -58,11 +58,11 @@ def download_all():  # @save
         download(name)
 
 
-if __name__ == '__main__':
-    DATA_HUB['kaggle_house_train'] = (DATA_URL + 'kaggle_house_pred_train.csv',
-                                      '585e9cc93e70b39160e7921475f9bcd7d31219ce')
+DATA_HUB['kaggle_house_train'] = (DATA_URL + 'kaggle_house_pred_train.csv',
+                                  '585e9cc93e70b39160e7921475f9bcd7d31219ce')
 
-    DATA_HUB['kaggle_house_test'] = (DATA_URL + 'kaggle_house_pred_test.csv',
-                                     'fa19780a7b011d9b009e8bff8e99922a8ee2eb90')
-    # download('kaggle_house_train')
+DATA_HUB['kaggle_house_test'] = (DATA_URL + 'kaggle_house_pred_test.csv',
+                                 'fa19780a7b011d9b009e8bff8e99922a8ee2eb90')
+
+if __name__ == '__main__':
     download_all()
