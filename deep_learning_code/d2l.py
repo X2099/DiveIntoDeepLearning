@@ -395,6 +395,8 @@ def predict_ch3(net, test_iter, n=10):
         break
 
 
+
+
 if __name__ == '__main__':
     import numpy as np
 
