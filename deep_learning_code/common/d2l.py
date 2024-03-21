@@ -395,6 +395,22 @@ def predict_ch3(net, test_iter, n=10):
         break
 
 
+def try_gpu(i=0):
+    """
+    如果有GPU则返回，如果没有则返回CPU
+    """
+    if torch.cuda.device_count() >= i + 1:
+        return torch.device(f'cuda:{i}')
+    return torch.device('cpu')
+
+
+def try_all_gpus():
+    """
+    返回所有的gpu列表，如果没有gpu则返回cpu
+    :return:
+    """
+    devices = [torch.device(f'cuda:{i}') for i in range(torch.cuda.device_count())]
+    return devices if devices else [torch.device('cpu')]
 
 
 if __name__ == '__main__':
