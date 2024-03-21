@@ -413,11 +413,24 @@ def try_all_gpus():
     return devices if devices else [torch.device('cpu')]
 
 
-if __name__ == '__main__':
-    import numpy as np
+def corr2d(X, K):
+    """
+    计算二维的互相关运算
+    :param X: 二维张量
+    :param K: 卷积核
+    :return: 卷积结果
+    """
+    xh, xw = X.shape
+    kh, kw = K.shape
+    Y = torch.zeros(size=(xh - kh + 1, xw - kw + 1))
+    for i in range(Y.shape[0]):
+        for j in range(Y.shape[1]):
+            Y[i, j] = (X[i:i + kh, j:j + kw] * K).sum()
+    return Y
 
-    x = np.arange(0, 10, 0.1)
-    # plot(x, x ** 2, legend=['x的平方'])
-    # plt.show()
-    plt.plot(x, label='123')
-    plt.show()
+
+if __name__ == '__main__':
+    X = torch.tensor([[0.0, 1.0, 2.0], [3.0, 4.0, 5.0], [6.0, 7.0, 8.0]])
+    K = torch.tensor([[0.0, 1.0], [2.0, 3.0]])
+    Y = corr2d(X, K)
+    print(Y)
