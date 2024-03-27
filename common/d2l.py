@@ -7,6 +7,7 @@
 import os
 import time
 from IPython import display
+import numpy as np
 import torch
 from torch.utils import data
 from torch import nn
