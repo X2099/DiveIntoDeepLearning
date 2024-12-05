@@ -9,6 +9,9 @@ import os
 import tarfile
 import zipfile
 import requests
+import torchvision
+from torch.utils import data
+from torchvision import transforms
 
 DATA_HUB = dict()
 DATA_URL = 'http://d2l-data.s3-accelerate.amazonaws.com/'
@@ -64,5 +67,35 @@ DATA_HUB['kaggle_house_train'] = (DATA_URL + 'kaggle_house_pred_train.csv',
 DATA_HUB['kaggle_house_test'] = (DATA_URL + 'kaggle_house_pred_test.csv',
                                  'fa19780a7b011d9b009e8bff8e99922a8ee2eb90')
 
+
+def load_data_cifar10(batch_size, resize=None):
+    """
+    加载加载CIFAR-10数据集
+    :param batch_size: 批量块大小
+    :param resize:
+    :return:
+    """
+    data_transform = [transforms.ToTensor()]
+    if resize:
+        data_transform.insert(0, transforms.Resize(resize))  # 将图像调整为指定大小，以便与模型的输入尺寸匹配
+    trans = transforms.Compose(data_transform)
+    train_dataset = torchvision.datasets.CIFAR10(root='../data', train=True, download=True, transform=trans)
+    test_dataset = torchvision.datasets.CIFAR10(root='../data', train=False, download=True, transform=trans)
+    train_data = data.DataLoader(train_dataset, batch_size, shuffle=True)
+    test_data = data.DataLoader(test_dataset, batch_size, shuffle=False)
+    return train_data, test_data
+
+
+def get_zh_label(label):
+    label_to_class = {
+        0: '飞机', 1: '汽车', 2: '鸟类', 3: '猫', 4: '鹿', 5: '狗', 6: '青蛙', 7: '马', 8: '船', 9: '卡车'
+    }
+    return label_to_class[label]
+
+
 if __name__ == '__main__':
-    download_all()
+    train_iter, test_iter = load_data_cifar10(32)
+    for X, y in train_iter:
+        print(X)
+        print(y)
+        break

@@ -1,17 +1,23 @@
-# -*- coding: utf-8 -*-
-"""
-@File    : debug.py
-@Time    : 2024/3/8 10:18
-@Desc    : 
-"""
-import os
+def scope_test():
+    def do_local():
+        spam = "local spam"
 
-import torchvision
-from torch import nn
+    def do_nonlocal():
+        nonlocal spam
+        spam = "nonlocal spam"
 
-from common import d2l
+    def do_global():
+        global spam
+        spam = "global spam"
 
-os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+    spam = "test spam"
+    do_local()
+    print("After local assignment:", spam)
+    do_nonlocal()
+    print("After nonlocal assignment:", spam)
+    do_global()
+    print("After global assignment:", spam)
 
-trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=None)
-testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=None)
+
+scope_test()
+print("In global scope:", spam)

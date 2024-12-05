@@ -4,103 +4,90 @@
 @Time    : 2024/3/22 17:08
 @Desc    : 
 """
+import datetime
+import os
+import sys
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils import data
-import torchvision
+from torch import nn
+import numpy as np
 from torchvision import transforms, models
+import matplotlib.pyplot as plt
 
+sys.path.append('..')
+
+from common.utils import load_data_cifar10, get_zh_label
 from common.d2l import Timer
 
-# 定义数据转换
-data_transform = transforms.Compose([
-    # 将图像调整为指定大小，以便与模型的输入尺寸匹配。这有助于确保模型能够接受统一大小的输入
-    transforms.Resize(256),
-    # 对图像进行中心裁剪，以去除图像边缘的无关信息。这在保留主要目标的同时减少了图像的大小
-    transforms.CenterCrop(224),
-    # 将图像转换为PyTorch张量格式，并对像素值进行归一化。这是因为PyTorch模型通常接受张量作为输入
-    transforms.ToTensor(),
-    # 对图像进行归一化处理，使得图像的像素值服从特定的分布，这有助于加速模型的收敛并提高训练效果
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-])
+plt.rcParams['font.family'] = ['Microsoft YaHei']
+plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
-# 下载并加载CIFAR-10数据集
-train_dataset = torchvision.datasets.CIFAR10(root='../data', train=True, download=True, transform=data_transform)
-test_dataset = torchvision.datasets.CIFAR10(root='../data', train=False, download=True, transform=data_transform)
+# 加载数据
+train_iter, test_iter = load_data_cifar10(32, (244, 244))
 
-# 创建数据加载器
-train_loader = data.DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=0)
-test_loader = data.DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=0)
-
-# 加载预训练的AlexNet模型
-alexnet = models.alexnet(weights=models.AlexNet_Weights.DEFAULT)
-
-# 将最后一层的全连接层替换成适合CIFAR-10数据集的新的全连接层
-num_classes = 10  # 10个输出类别
-alexnet.classifier[6] = nn.Linear(alexnet.classifier[6].in_features, num_classes)
+# 加载预训练的VGG模型
+vgg = models.vgg16(weights=models.VGG16_Weights.DEFAULT)
+# 修改输出层以适应CIFAR-10数据集的类别数量
+vgg.classifier[-1] = nn.Linear(4096, 10)
+# 冻结模型的前几层
+for param in vgg.features.parameters():
+    param.requires_grad = False
 
 # 定义损失函数和优化器
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.SGD(alexnet.parameters(), lr=0.001, momentum=0.9)  # momentum参数引入了一个动量项
+optimizer = torch.optim.SGD(vgg.parameters(), lr=0.01, momentum=0.9)
 
-# 设置设备
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-alexnet.to(device)
-
-timer = Timer()  # 计时器
-
-# 训练模型
+timer = Timer()  # 启动一个计时器
 num_epochs = 1
 for epoch in range(num_epochs):
-    running_loss = 0.0  # 损失
+    running_loss = 0.0
     correct = 0  # 预测正确的数量
     total = 0  # 总数量
-
-    alexnet.train()
-
-    for i, (inputs, labels) in enumerate(train_loader):
-        inputs, labels = inputs.to(device), labels.to(device)
-
+    for i, (inputs, labels) in enumerate(train_iter):
         optimizer.zero_grad()
-        outputs = alexnet(inputs)
+        outputs = vgg(inputs)
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
-        running_loss += loss.item() * inputs.size(0)
+        running_loss += loss.item()
         _, predicted = torch.max(outputs, 1)
         total += labels.size(0)
         correct += (predicted == labels).sum().item()
-        if i >= 200:
-            print("用时：", timer.stop())
+        if i >= 2:
             break
     train_loss = running_loss / total
     train_acc = correct / total
 
     print(f'迭代周期 [{epoch + 1}/{num_epochs}], 训练损失: {train_loss:.4f}, 训练精度: {train_acc:.4f}')
+    print("用时：", timer.stop())
+    break
 
-import matplotlib.pyplot as plt
-import numpy as np
+import datetime
 
-# 在测试集上评估模型
-alexnet.eval()
-test_correct = 0
-test_total = 0
+now_str = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+torch.save(vgg.state_dict(), f'my_vgg_weights_{now_str}.pth')
 
-# 在测试集上进行预测
+# 在测试数据集上评估模型
+correct = 0
+total = 0
 with torch.no_grad():
-    for images, labels in test_loader:
-        images, labels = images.to(device), labels.to(device)
-        outputs = alexnet(images)
-        _, predicted = torch.max(outputs, 1)
+    for inputs, labels in test_iter:
+        outputs = vgg(inputs)
+        _, predicted = torch.max(outputs.data, 1)
+        total += labels.size(0)
+        correct += (predicted == labels).sum().item()
 
         # 将张量转换为numpy数组
-        images = images.cpu().numpy()
+        images = inputs.cpu().numpy()
         labels = labels.cpu().numpy()
         predicted = predicted.cpu().numpy()
 
-        # 可视化预测结果和图像
         for i in range(len(images)):
-            plt.imshow(np.transpose(images[i], (1, 2, 0)))  # 将图像从(C, H, W)转换为(H, W, C)格式
-            plt.title(f"Label: {labels[i]}, Predicted: {predicted[i]}")
+            plt.imshow(np.transpose(images[i], (1, 2, 0)), interpolation='nearest')  # 将图像从(C, H, W)转换为(H, W, C)格式
+            plt.title(f"真实类型: {get_zh_label(labels[i])}, 预测类型: {get_zh_label(predicted[i])}")
             plt.show()
+            if i >= 5:
+                break
+        break
+
+print(f"测试集上准确率: {100 * correct / total}%")
