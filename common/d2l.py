@@ -355,6 +355,10 @@ class Animator:
         display.display(self.fig)
         display.clear_output(wait=True)
 
+    def show(self):
+        # 显示图形
+        plt.show()
+
 
 def train_epoch_ch3(net, train_iter, loss, updater):
     """
@@ -445,6 +449,7 @@ def train_ch6(net, train_iter, test_iter, num_epochs, lr, device):
         animator.add(epoch + 1, (None, None, test_acc))
     print(f'损失 {train_l:.3f}, 训练精度 {train_acc:.3f},  测试精度 {test_acc:.3f}')
     print(f'{metric[2] * num_epochs / timer.sum():.1f} 个样本/秒 在 {str(device)} 上')
+    animator.show()
 
 
 def predict_ch3(net, test_iter, n=10):
