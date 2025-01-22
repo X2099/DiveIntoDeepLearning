@@ -24,7 +24,7 @@ from matplotlib import rcParams
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 # 设置中文字体（SimHei 是黑体字）
-plt.rcParams['font.sans-serif'] = ['SimHei']  # 使用黑体
+# plt.rcParams['font.sans-serif'] = ['SimHei']  # 使用黑体
 # rcParams['font.sans-serif'] = ['SimHei']  # 设置字体为黑体
 # plt.rcParams['font.family'] = 'DejaVu Sans'
 plt.rcParams['axes.unicode_minus'] = False  # 解决负号 '-' 显示成方块的问题
@@ -254,6 +254,7 @@ class Animator:
         # 显示图形
         # print(plt.rcParams['font.family'])  # 查看当前字体
         plt.show()
+        plt.savefig('output.png')
 
 
 def show_images(imgs, num_rows, num_cols, titles=None, scale=1.5):
@@ -480,7 +481,7 @@ def train_ch6(net, train_iter, test_iter, num_epochs, lr, device):
     loss = nn.CrossEntropyLoss()
     animator = d2l.Animator(xlabel="epoch", xlim=[1, num_epochs],
                             legend=['train loss', 'train acc', 'test acc'],
-                            figsize=(9, 5), title="深度卷积神经网络（AlexNet）")
+                            figsize=(9, 5), title="Network in Network (NiN)")
     timer, num_batches = d2l.Timer(), len(train_iter)
     metric = d2l.Accumulator(3)
     train_l, train_acc, test_acc = 0, 0, 0
