@@ -481,7 +481,7 @@ def train_ch6(net, train_iter, test_iter, num_epochs, lr, device):
     loss = nn.CrossEntropyLoss()
     animator = d2l.Animator(xlabel="epoch", xlim=[1, num_epochs],
                             legend=['train loss', 'train acc', 'test acc'],
-                            figsize=(9, 5), title="LeNet with Batch Normalization")
+                            figsize=(9, 5), title="Residual Networks (ResNet)")
     timer, num_batches = d2l.Timer(), len(train_iter)
     metric = d2l.Accumulator(3)
     train_l, train_acc, test_acc = 0, 0, 0
