@@ -524,3 +524,43 @@ DATA_HUB['kaggle_house_test'] = (
     DATA_URL + 'kaggle_house_pred_test.csv',
     'fa19780a7b011d9b009e8bff8e99922a8ee2eb90'
 )
+
+
+def show_heatmaps(matrices, xlabel, ylabel, titles=None, figsize=(2.5, 2.5),
+                  cmap='Reds'):
+    """显示矩阵热图的函数
+
+    参数：
+    matrices: 形状为 (num_rows, num_cols, height, width) 的四维张量，每个子矩阵表示一个热图
+    xlabel: 横轴标签
+    ylabel: 纵轴标签
+    titles: 每个子图的标题，默认为 None
+    figsize: 整个热图的尺寸，默认为 (2.5, 2.5)
+    cmap: 颜色映射方案，默认为 'Reds'
+    """
+
+    # 使用 SVG 显示，以获得更清晰的图片
+    d2l.use_svg_display()
+    # 获取矩阵的行数和列数（即热图的排列方式）
+    num_rows, num_cols = matrices.shape[0], matrices.shape[1]
+    # 创建子图网格，sharex 和 sharey 使所有子图共享坐标轴，squeeze=False 保证 axes 仍然是 2D 结构
+    fig, axes = d2l.plt.subplots(num_rows, num_cols, figsize=figsize,
+                                 sharex=True, sharey=True, squeeze=False)
+
+    # 遍历所有行和列，绘制每个小热图
+    for i, (row_axes, row_matrices) in enumerate(zip(axes, matrices)):
+        for j, (ax, matrix) in enumerate(zip(row_axes, row_matrices)):
+            # 将矩阵数据转换为 NumPy 数组并显示为热图
+            pcm = ax.imshow(matrix.detach().numpy(), cmap=cmap)
+            # 设置横轴标签，只在最后一行的子图显示
+            if i == num_rows - 1:
+                ax.set_xlabel(xlabel)
+            # 设置纵轴标签，只在第一列的子图显示
+            if j == 0:
+                ax.set_ylabel(ylabel)
+            # 设置子图的标题（如果提供了标题列表）
+            if titles:
+                ax.set_title(titles[j])
+
+    # 添加颜色条（colorbar）以指示热图的数值强度
+    fig.colorbar(pcm, ax=axes, shrink=0.6)
