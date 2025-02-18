@@ -90,7 +90,7 @@ def plot(X, Y=None, xlabel=None, ylabel=None, legend=None, xlim=None,
         else:
             axes.plot(y, fmt)
     set_axes(axes, xlabel, ylabel, xlim, ylim, xscale, yscale, legend)
-    # plt.show()
+    plt.show()
 
 
 def synthetic_data(w, b, num_examples):
@@ -526,7 +526,7 @@ DATA_HUB['kaggle_house_test'] = (
 )
 
 
-def show_heatmaps(matrices, xlabel, ylabel, titles=None, figsize=(2.5, 2.5),
+def show_heatmaps(matrices, xlabel, ylabel, titles=None, figsize=(5, 5),
                   cmap='Reds'):
     """显示矩阵热图的函数
 
