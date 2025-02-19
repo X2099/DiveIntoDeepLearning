@@ -5,11 +5,13 @@
 @Desc    : 
 """
 import hashlib
+import re
 import sys
 import os
 import tarfile
 import time
 import zipfile
+import collections
 
 import numpy as np
 import requests
@@ -564,3 +566,123 @@ def show_heatmaps(matrices, xlabel, ylabel, titles=None, figsize=(5, 5),
 
     # 添加颜色条（colorbar）以指示热图的数值强度
     fig.colorbar(pcm, ax=axes, shrink=0.6)
+
+
+DATA_HUB['time_machine'] = (
+    DATA_URL + 'timemachine.txt',
+    '090b5e7e70c295757f55df93cb0a180b9691891a'
+)
+
+
+def read_time_machine():
+    """将时间机器数据集加载到文本行的列表中"""
+    with open(download('time_machine'), 'r') as f:
+        lines = f.readlines()
+    return [re.sub('[^A-Za-z]+', ' ', line).strip().lower() for line in lines]
+
+
+def tokenize(lines, token='word'):
+    """将文本行拆分为单词或字符词元"""
+    if token == 'word':
+        return [line.split() for line in lines]
+    elif token == 'char':
+        return [list(line) for line in lines]
+    else:
+        raise Exception(f'错误：未知词元类型：{token}')
+
+
+class Vocab:
+    """文本词表，用于将词元（token）映射为数字索引"""
+
+    def __init__(self, tokens=None, min_freq=0, reserved_tokens=None):
+        """
+        初始化词表，构建词元到数字索引的映射
+
+        参数:
+        - tokens (list): 词元的列表，可以是文本数据中提取出的词元。每个词元可以是单词或字符，默认值为 `None`。
+        - min_freq (int): 最小词频，只有词频大于或等于该值的词元才会被加入词表，默认值为 `0`。
+        - reserved_tokens (list): 预留词元的列表，这些词元会优先添加到词表中（例如：`<unk>`、`<pad>`等）。默认值为 `None`。
+        """
+        if tokens is None:
+            tokens = []
+        if reserved_tokens is None:
+            reserved_tokens = []
+        # 统计词元频率，并按频率降序排序
+        counter = count_corpus(tokens)
+        self._token_freqs = sorted(counter.items(), key=lambda x: x[1], reverse=True)
+        # 初始化词表，<unk>代表未知词元
+        self.idx_to_token = ['<unk>'] + reserved_tokens
+        self.token_to_idx = {idx: token for idx, token in enumerate(self.idx_to_token)}
+        # 根据频率添加词元，忽略低频词
+        for token, freq in self._token_freqs:
+            if freq < min_freq:
+                break
+            if token not in self.token_to_idx:
+                self.idx_to_token.append(token)
+                self.token_to_idx[token] = len(self.idx_to_token) - 1
+
+    def __len__(self):
+        """返回词表大小"""
+        return len(self.idx_to_token)
+
+    def __getitem__(self, tokens):
+        """
+        根据词元返回对应的索引，支持列表输入
+
+        参数:
+        - tokens (str, list, tuple): 输入一个词元（字符串）或者词元列表（字符串列表）。
+          如果是单个词元，返回该词元的索引；如果是列表或元组，返回每个词元的索引列表。
+
+        返回:
+        - (int, list): 如果输入是单个词元，返回对应的索引；如果是词元列表，返回一个索引列表。
+        """
+        if not isinstance(tokens, (tuple, list)):
+            return self.token_to_idx.get(tokens, self.unk)
+        return [self.__getitem__(token) for token in tokens]
+
+    @property
+    def unk(self):
+        """返回未知词元的索引（0）"""
+        return 0
+
+    @property
+    def token_freqs(self):
+        """返回词元频率列表"""
+        return self._token_freqs
+
+
+def count_corpus(tokens):
+    """
+    统计词元频率，支持1D和2D列表
+
+    参数:
+    - tokens (list, list of lists): 输入词元列表，可以是一个一维的词元列表，或者是多个文本行的词元列表（二维列表）。
+
+    返回:
+    - (dict): 返回一个字典，键为词元，值为该词元在语料库中出现的频率。
+    """
+    if len(tokens) == 0 or isinstance(tokens[0], list):
+        tokens = [token for line in tokens for token in line]
+    return collections.Counter(tokens)
+
+
+def load_corpus_time_machine(max_tokens=-1):
+    """
+    返回时光机器数据集的词元索引列表和词表
+
+    参数:
+    - max_tokens (int): 限制返回的词元数量。如果为负值，表示不限制数量，返回全部数据。默认值为 -1。
+
+    返回:
+    - corpus (list): 词元索引的列表，表示文本中的每个字符（词元）的索引。
+    - vocab (Vocab): 词表对象，用于映射词元和索引之间的关系。
+    """
+    lines = read_time_machine()
+    tokens = tokenize(lines, 'char')  # 使用字符级别的词元化
+    vocab = Vocab(tokens)  # 构建词表
+    # 将所有文本行展平为一个词元索引的列表
+    corpus = [vocab[token] for line in tokens for token in line]
+    # 如果限制了词元数量，则截取前 max_tokens 个词元
+    if max_tokens > 0:
+        corpus = corpus[:max_tokens]
+    return corpus, vocab
