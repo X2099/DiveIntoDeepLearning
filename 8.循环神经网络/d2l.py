@@ -5,6 +5,7 @@
 @Desc    : 
 """
 import hashlib
+import random
 import re
 import sys
 import os
@@ -64,7 +65,7 @@ def set_axes(axes, xlabel, ylabel, xlim, ylim, xscale, yscale, legend):
 # 通过这三个用于图形配置的函数，定义一个plot函数来简洁地绘制多条曲线，因为我们需要在整个书中可视化许多曲线。
 def plot(X, Y=None, xlabel=None, ylabel=None, legend=None, xlim=None,
          ylim=None, xscale='linear', yscale='linear',
-         fmts=('-', 'm--', 'g-.', 'r:'), figsize=(5.5, 4), axes=None):
+         fmts=('-', 'm--', 'g-.', 'r:'), figsize=(6.5, 5), axes=None):
     """绘制数据点"""
     if legend is None:
         legend = []
@@ -686,3 +687,86 @@ def load_corpus_time_machine(max_tokens=-1):
     if max_tokens > 0:
         corpus = corpus[:max_tokens]
     return corpus, vocab
+
+
+def seq_data_iter_random(corpus, batch_size, num_steps):
+    """
+    使用随机抽样生成一个小批量子序列。
+
+    参数:
+    corpus (list): 输入的文本数据（词元列表）。
+    batch_size (int): 每个批次的样本数量。
+    num_steps (int): 每个序列的长度。
+
+    返回:
+    iterator: 返回一个生成器，每次迭代返回一个批次的输入序列（X）和目标序列（Y）。
+    """
+    # 从随机偏移量开始对序列进行分区，随机范围包括 num_steps-1
+    corpus = corpus[random.randint(0, num_steps - 1):]
+    # 计算可以从文本中划分出的子序列数量，减去1是因为要考虑标签
+    num_subseqs = (len(corpus) - 1) // num_steps
+    # 获取每个子序列的起始索引
+    initial_indices = list(range(0, num_subseqs * num_steps, num_steps))
+    # 随机打乱子序列的起始索引
+    random.shuffle(initial_indices)
+
+    def data(pos):
+        # 返回从 pos 位置开始的长度为 num_steps 的子序列
+        return corpus[pos:pos + num_steps]
+
+    # 计算每个批次的子序列数量
+    num_batches = num_subseqs // batch_size
+    # 迭代批次
+    for i in range(0, batch_size * num_batches, batch_size):
+        # 获取当前批次的随机起始索引
+        initial_indices_per_batch = initial_indices[i:i + batch_size]
+        # 生成当前批次的输入序列 X 和目标序列 Y
+        X = [data(j) for j in initial_indices_per_batch]
+        Y = [data(j + 1) for j in initial_indices_per_batch]
+
+        yield torch.tensor(X), torch.tensor(Y)
+
+
+def seq_data_iter_sequential(corpus, batch_size, num_steps):
+    """使用顺序分区生成一个小批量子序列"""
+    # 从随机偏移量开始划分序列
+    offset = random.randint(0, num_steps)
+    # 确保每个批次的大小都是batch_size的整数倍
+    num_tokens = ((len(corpus) - offset - 1) // batch_size) * batch_size
+    # 创建输入（Xs）和标签（Ys）序列
+    Xs = torch.tensor(corpus[offset:offset + num_tokens])
+    Ys = torch.tensor(corpus[offset + 1:offset + 1 + num_tokens])
+    # 重塑成 (batch_size, num_steps) 的形状
+    Xs, Ys = Xs.reshape(batch_size, -1), Ys.reshape(batch_size, -1)
+    # 计算可以生成的批次数量
+    num_batches = Xs.shape[1] // num_steps
+    # 生成每个小批量的数据
+    for i in range(0, num_steps * num_batches, num_steps):
+        X = Xs[:, i:i + num_steps]
+        Y = Ys[:, i:i + num_steps]
+        yield X, Y
+
+
+class SeqDataLoader:
+    """加载序列数据的迭代器"""
+
+    def __init__(self, batch_size, num_steps, use_random_iter, max_tokens):
+        # 根据选择的迭代方式设置对应的数据迭代函数
+        if use_random_iter:
+            self.data_iter_fn = seq_data_iter_random
+        else:
+            self.data_iter_fn = seq_data_iter_sequential
+        # 加载数据
+        self.corpus, self.vocab = load_corpus_time_machine()
+        # 保存批大小和时间步数
+        self.batch_size, self.num_steps = batch_size, num_steps
+
+    def __iter__(self):
+        return self.data_iter_fn(self.corpus, self.batch_size, self.num_steps)
+
+
+def load_data_time_machine(batch_size, num_steps,
+                           use_random_iter=False, max_tokens=10000):
+    """返回时光机器数据集的迭代器和词表"""
+    data_iter = SeqDataLoader(batch_size, num_steps, use_random_iter, max_tokens)
+    return data_iter, data_iter.vocab
