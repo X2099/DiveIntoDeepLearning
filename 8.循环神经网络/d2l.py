@@ -5,6 +5,7 @@
 @Desc    : 
 """
 import hashlib
+import math
 import random
 import re
 import sys
@@ -21,6 +22,7 @@ from matplotlib import pyplot as plt
 from matplotlib_inline import backend_inline
 import torch
 from torch import nn
+from torch.nn import functional as F
 from torch.utils import data
 from torchvision import transforms
 from matplotlib import rcParams
@@ -757,7 +759,7 @@ class SeqDataLoader:
         else:
             self.data_iter_fn = seq_data_iter_sequential
         # 加载数据
-        self.corpus, self.vocab = load_corpus_time_machine()
+        self.corpus, self.vocab = load_corpus_time_machine(max_tokens)
         # 保存批大小和时间步数
         self.batch_size, self.num_steps = batch_size, num_steps
 
@@ -770,3 +772,198 @@ def load_data_time_machine(batch_size, num_steps,
     """返回时光机器数据集的迭代器和词表"""
     data_iter = SeqDataLoader(batch_size, num_steps, use_random_iter, max_tokens)
     return data_iter, data_iter.vocab
+
+
+class RNNModelScratch:
+    """从零开始实现的循环神经网络模型，用于字符级文本生成。"""
+
+    def __init__(self, vocab_size, num_hiddens, device,
+                 get_params, init_state, forward_fn):
+        """
+        初始化 RNN 模型。
+
+        参数:
+        vocab_size (int): 词汇表大小。
+        num_hiddens (int): 隐藏层单元数。
+        device (torch.device): 设备。
+        get_params (function): 获取模型参数的函数。
+        init_state (function): 初始化隐藏状态的函数。
+        forward_fn (function): 前向传播函数。
+        """
+        self.vocab_size, self.num_hiddens = vocab_size, num_hiddens
+        # 获取模型的所有参数
+        self.params = get_params(vocab_size, num_hiddens, device)
+        # 设置初始化状态函数和前向传播函数
+        self.init_state, self.forward_fn = init_state, forward_fn
+
+    def __call__(self, X, state):
+        """
+        调用模型进行前向传播。
+
+        参数:
+        X (Tensor): 输入数据，形状为 (batch_size, seq_len)。
+        state (Tensor): 上一时刻的隐藏状态，形状为 (batch_size, num_hiddens)。
+
+        返回:
+        输出结果和更新后的隐藏状态。
+        """
+        # 将输入转换为one-hot编码，并进行类型转换
+        X = F.one_hot(X.T, self.vocab_size).type(torch.float32)
+        return self.forward_fn(X, state, self.params)  # 调用前向传播函数进行计算
+
+    def begin_state(self, batch_size, device):
+        """
+        初始化隐藏状态。
+
+        参数:
+        batch_size (int): 输入数据的批量大小。
+        device (torch.device): 设备类型（'cpu' 或 'gpu'）。
+
+        返回:
+        Tensor: 初始化的隐藏状态，形状为 (batch_size, num_hiddens)。
+        """
+        return self.init_state(batch_size, self.num_hiddens, device)
+
+
+def predict_ch8(prefix, num_preds, net, vocab, device):
+    """
+    使用训练好的RNN模型生成文本。
+
+    参数:
+    prefix (str): 输入的文本前缀，模型将基于这个前缀生成后续文本。
+    num_preds (int): 要生成的字符数。
+    net (nn.Module): 训练好的RNN模型。
+    vocab (Vocab): 词汇表，用于处理输入和输出的字符。
+    device (torch.device): 设备（CPU或GPU），决定模型和数据存放的位置。
+
+    返回:
+    str: 生成的文本序列。
+    """
+    state = net.begin_state(batch_size=1, device=device)  # 初始状态为空
+    outputs = [vocab[prefix[0]]]
+    get_input = lambda: torch.tensor([outputs[-1]], device=device).reshape((1, 1))
+    # 将前缀转换为模型的输入，获取对应的字符索引
+    for y in prefix[1:]:
+        # 使用模型预测下一个字符，更新隐状态
+        _, state = net(get_input(), state)
+        outputs.append(vocab[y])
+    # 生成num_preds个字符
+    for _ in range(num_preds):
+        # 获取当前模型的输出（预测的下一个字符）
+        y, state = net(get_input(), state)
+        outputs.append(int(y.argmax(dim=1).reshape(1)))
+
+    return ''.join([vocab.idx_to_token[i] for i in outputs])
+
+
+def grad_clipping(net, theta):
+    """裁剪梯度
+    对模型的梯度进行裁剪，防止梯度爆炸。
+    参数：
+        net: 神经网络模型，可以是 `nn.Module` 的实例或包含参数的自定义对象。
+        theta: 裁剪阈值。如果梯度的范数超过该阈值，进行裁剪。
+    """
+    # 如果 net 是 nn.Module 类的实例，获取其所有可训练的参数
+    if isinstance(net, nn.Module):
+        # 获取所有需要梯度更新的参数
+        params = [param for param in net.parameters() if param.requires_grad]
+    else:
+        # 如果 net 不是 nn.Module 实例，假设它有一个 `params` 属性
+        params = net.params
+    # 计算所有参数的梯度范数（L2范数）：对所有参数的梯度进行平方和，再取平方根
+    norm = torch.sqrt(sum(torch.sum((p.grad ** 2)) for p in params))
+    # 如果梯度的范数超过了阈值 theta，就进行裁剪
+    if norm > theta:
+        for param in params:
+            # 通过缩放梯度，确保范数不超过 theta
+            param.grad[:] *= theta / norm
+
+
+def train_epoch_ch8(net, train_iter, loss, updater, device, use_random_iter):
+    """训练网络一个迭代周期
+    参数：
+        net: 待训练的网络模型
+        train_iter: 训练数据迭代器
+        loss: 损失函数
+        updater: 更新器，可以是优化器或自定义的更新方法
+        device: 计算设备（如 'cpu' 或 'cuda'）
+        use_random_iter: 是否使用随机抽样
+    返回：
+        返回训练损失的指数损失（即对数损失的指数）和每秒处理的样本数量
+    """
+    state, timer = None, Timer()  # 初始化模型状态和计时器
+    metric = Accumulator(2)  # 用于累积训练损失和词元数量的辅助器
+    for X, Y in train_iter:
+        if state is None or use_random_iter:
+            # 如果是第一次迭代或者需要随机抽样时，初始化模型的隐状态
+            state = net.begin_state(X.shape[0], device)
+        else:
+            if isinstance(net, nn.Module) and not isinstance(state, tuple):
+                # 如果模型是nn.Module且隐状态是一个张量（如GRU）
+                state.detach_()  # 将隐状态从计算图中分离，避免梯度传播
+            else:
+                # 如果模型是LSTM或自定义模型，隐状态可能是一个元组
+                for s in state:
+                    s.detach_()  # 将每个隐状态分离
+        y = Y.T.reshape(-1)  # 转置并拉直标签张量
+        X, y = X.to(device), y.to(device)  # 将输入和标签移动到指定设备
+        # 前向传播：计算预测结果和更新隐状态
+        y_hat, state = net(X, state)
+        # 计算当前批次的损失，使用long类型的标签
+        l = loss(y_hat, y.long()).mean()
+
+        if isinstance(updater, torch.optim.Optimizer):
+            # 如果updater是优化器对象（如torch.optim.Optimizer）
+            updater.zero_grad()
+            l.backward()
+            grad_clipping(net, 1)  # 梯度裁剪，避免梯度爆炸
+            updater.step()
+        else:
+            # 如果updater是自定义的更新方法
+            l.backward()
+            grad_clipping(net, 1)
+            updater(batch_size=1)
+        # 累积当前批次的损失和词元数量
+        metric.add(l * y.numel(), y.numel())
+    return math.exp(metric[0] / metric[1]), metric[1] / timer.stop()
+
+
+def train_ch8(net, train_iter, vocab, lr, num_epochs, device,
+              use_random_iter=False):
+    """训练模型
+    参数：
+        net: 待训练的网络模型
+        train_iter: 训练数据迭代器
+        vocab: 词汇表
+        lr: 学习率
+        num_epochs: 训练的周期数
+        device: 计算设备（如 'cpu' 或 'cuda'）
+        use_random_iter: 是否使用随机抽样（默认为 False）
+    """
+    loss = nn.CrossEntropyLoss()  # 定义交叉熵损失函数
+    animator = Animator(xlabel='epoch', ylabel='perplexity',
+                        legend=['train'], xlim=[10, num_epochs],
+                        figsize=(7, 5.5))
+    # 初始化更新器
+    if isinstance(net, nn.Module):
+        updater = torch.optim.SGD(net.parameters(), lr=lr)
+    else:
+        updater = lambda batch_size: sgd(net.params, lr, batch_size)
+
+    # 定义预测函数，用于根据给定前缀生成文本
+    predict = lambda prefix: predict_ch8(prefix, 50, net, vocab, device)
+    # 训练和预测
+    for epoch in range(num_epochs):
+        # 在每个周期中训练并计算困惑度和每秒处理的词元数
+        ppl, speed = train_epoch_ch8(net, train_iter, loss, updater, device, use_random_iter)
+        # 每经过10个周期打印一次预测结果
+        if (epoch + 1) % 10 == 0:
+            print(predict('time traveller'))  # 以'time traveller'为前缀进行预测
+            animator.add(epoch + 1, [ppl])
+
+    # 打印最终的困惑度和处理速度
+    print(f'困惑度 {ppl:.1f}, {speed:.1f} 词元/秒 {str(device)}')
+
+    # 打印以'time traveller'和'traveller'为前缀的预测文本
+    print(predict('time traveller'))
+    print(predict('traveller'))
