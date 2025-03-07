@@ -943,7 +943,7 @@ def train_ch8(net, train_iter, vocab, lr, num_epochs, device,
     loss = nn.CrossEntropyLoss()  # 定义交叉熵损失函数
     animator = Animator(xlabel='epoch', ylabel='perplexity',
                         legend=['train'], xlim=[10, num_epochs],
-                        figsize=(7, 5.5))
+                        figsize=(6.18, 3.82))
     # 初始化更新器
     if isinstance(net, nn.Module):
         updater = torch.optim.SGD(net.parameters(), lr=lr)
@@ -958,7 +958,7 @@ def train_ch8(net, train_iter, vocab, lr, num_epochs, device,
         ppl, speed = train_epoch_ch8(net, train_iter, loss, updater, device, use_random_iter)
         # 每经过10个周期打印一次预测结果
         if (epoch + 1) % 10 == 0:
-            print(predict('time traveller'))  # 以'time traveller'为前缀进行预测
+            print(epoch + 1, predict('time traveller'))  # 以'time traveller'为前缀进行预测
             animator.add(epoch + 1, [ppl])
 
     # 打印最终的困惑度和处理速度
