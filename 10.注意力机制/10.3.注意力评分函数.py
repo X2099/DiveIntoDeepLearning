@@ -34,22 +34,7 @@ output = attention(queries, keys, values, valid_lens)
 # print(output)
 
 
-class DotProductAttention(nn.Module):
-    def __init__(self, dropout):
-        super(DotProductAttention, self).__init__()
-        self.dropout = nn.Dropout(dropout)
 
-    def forward(self, queries, keys, values, valid_lens=None):
-        d = queries.shape[-1]  # 查询和键的维度
-
-        # 计算查询和键的点积，注意进行缩放
-        scores = torch.bmm(queries, keys.transpose(1, 2)) / math.sqrt(d)
-
-        # 计算注意力权重
-        attention_weights = masked_softmax(scores, valid_lens)
-
-        # 返回加权求和的值
-        return torch.bmm(self.dropout(attention_weights), values)
 
 
 # 示例：查询和键的维度
