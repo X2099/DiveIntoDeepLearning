@@ -44,6 +44,6 @@ values = torch.arange(40, dtype=torch.float32).reshape(1, 10, 4).repeat(2, 1, 1)
 
 valid_lens = torch.tensor([2, 6])  # 每个句子的有效长度
 
-attention = DotProductAttention(dropout=0.5)
+attention = d2l.DotProductAttention(dropout=0.5)
 output = attention(queries, keys, values, valid_lens)
 # print(output)

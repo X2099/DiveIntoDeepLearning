@@ -14,8 +14,10 @@ import tarfile
 import time
 import zipfile
 import collections
+from itertools import islice
 from pprint import pprint
 
+import jieba
 import numpy as np
 import requests
 import torchvision.datasets
@@ -1250,6 +1252,8 @@ def train_seq2seq(net, data_iter, lr, num_epochs, tgt_vocab, device):
                 metric.add(l.sum(), num_tokens)
         if (epoch + 1) % 10 == 0:
             animator.add(epoch + 1, (metric[0] / metric[1],))
+            print(f'epoch {epoch + 1} loss {metric[0] / metric[1]:.3f}, {metric[1] / timer.stop():.1f} '
+                  f'tokens/sec on {str(device)}')
 
     print(f'loss {metric[0] / metric[1]:.3f}, {metric[1] / timer.stop():.1f} '
           f'tokens/sec on {str(device)}')
@@ -1463,10 +1467,10 @@ class DotProductAttention(nn.Module):
         scores = torch.bmm(queries, keys.transpose(1, 2)) / math.sqrt(d)
 
         # 计算注意力权重
-        attention_weights = masked_softmax(scores, valid_lens)
+        self.attention_weights = masked_softmax(scores, valid_lens)
 
         # 返回加权求和的值
-        return torch.bmm(self.dropout(attention_weights), values)
+        return torch.bmm(self.dropout(self.attention_weights), values)
 
 
 def transpose_qkv(X, num_heads):
@@ -1547,3 +1551,371 @@ class PositionalEncoding(nn.Module):
     def forward(self, X):
         X = X + self.P[:, :X.shape[1], :].to(X.device)
         return self.dropout(X)
+
+
+class PositionWiseFFN(nn.Module):
+    """基于位置的前馈网络（Position-wise Feed-Forward Network, FFN）
+
+    该网络用于 Transformer 结构中的每个位置的前馈计算，不同于传统的全连接网络，
+    它对序列的每个时间步独立处理，不共享参数。通常由两个线性变换和一个 ReLU 激活函数组成。
+    """
+
+    def __init__(self, ffn_num_input, ffn_num_hiddens, ffn_num_outputs, **kwargs):
+        """
+        初始化前馈网络层。
+
+        参数：
+        ffn_num_input (int): 输入特征的维度。
+        ffn_num_hiddens (int): 隐藏层的特征维度。
+        ffn_num_outputs (int): 输出特征的维度。
+        """
+        super().__init__(**kwargs)
+        self.dense1 = nn.Linear(ffn_num_input, ffn_num_hiddens)
+        self.relu = nn.ReLU()
+        self.dense2 = nn.Linear(ffn_num_hiddens, ffn_num_outputs)
+
+    def forward(self, X):
+        """
+        前向传播计算。
+
+        参数：
+        X (Tensor): 输入张量，形状通常为 (batch_size, seq_len, ffn_num_input)。
+
+        返回：
+        Tensor: 输出张量，形状为 (batch_size, seq_len, ffn_num_outputs)。
+        """
+        return self.dense2(self.relu(self.dense1(X)))
+
+
+class AddNorm(nn.Module):
+    """残差连接后进行层规范化（Add & Norm）"""
+
+    def __init__(self, normalized_shape, dropout, **kwargs):
+        """
+        初始化 AddNorm 模块。
+
+        参数：
+        normalized_shape (int or tuple): 需要进行层规范化的特征维度。
+        dropout (float): Dropout 的丢弃率，用于防止过拟合。
+        """
+        super().__init__(**kwargs)
+        self.dropout = nn.Dropout(dropout)  # 施加 Dropout，防止过拟合
+        self.ln = nn.LayerNorm(normalized_shape)  # 进行层规范化
+
+    def forward(self, X, Y):
+        """
+        前向传播：执行残差连接（X + dropout(Y)）并进行层规范化。
+
+        参数：
+        X (Tensor): 残差连接的原始输入。
+        Y (Tensor): 需要施加 Dropout 并参与残差连接的输出。
+
+        返回：
+        Tensor: 经过残差连接和层规范化后的结果。
+        """
+        return self.ln(X + self.dropout(Y))
+
+
+class EncoderBlock(nn.Module):
+    """Transformer 编码器块
+
+    该模块包括多头自注意力机制、残差连接、层归一化以及前馈神经网络。
+    """
+
+    def __init__(self, key_size, query_size, value_size, num_hiddens,
+                 norm_shape, ffn_num_input, ffn_num_hiddens, num_heads,
+                 dropout, use_bias=False, **kwargs):
+        """
+        参数：
+        key_size: int，键的维度
+        query_size: int，查询的维度
+        value_size: int，值的维度
+        num_hiddens: int，隐藏层维度
+        norm_shape: tuple，层归一化的形状
+        ffn_num_input: int，前馈神经网络的输入维度
+        ffn_num_hiddens: int，前馈神经网络的隐藏层维度
+        num_heads: int，多头注意力的头数
+        dropout: float，Dropout 概率
+        use_bias: bool，是否在注意力计算时使用偏置
+        """
+        super().__init__(**kwargs)
+        # 多头自注意力机制
+        self.attention = MultiHeadAttention(key_size, query_size, value_size, num_hiddens,
+                                            num_heads, dropout, use_bias)
+        # 第一层 AddNorm（用于多头注意力后的归一化）
+        self.addnorm1 = AddNorm(norm_shape, dropout)
+        # 前馈神经网络（FFN）
+        self.ffn = PositionWiseFFN(ffn_num_input, ffn_num_hiddens, num_hiddens)
+        # 第二层 AddNorm（用于 FFN 之后的归一化）
+        self.addnorm2 = AddNorm(norm_shape, dropout)
+
+    def forward(self, X, valid_lens):
+        """
+        前向传播过程：
+        1. 进行多头自注意力计算，并通过 AddNorm 归一化
+        2. 经过前馈神经网络，并通过 AddNorm 归一化
+
+        参数：
+        X: 张量，输入序列，形状为 (batch_size, num_tokens, num_hiddens)
+        valid_lens: 张量，掩码长度，防止模型关注填充部分
+
+        返回：
+        归一化后的输出张量，形状与 X 相同
+        """
+        # 多头自注意力 + 残差连接 + 归一化
+        Y = self.addnorm1(X, self.attention(X, X, X, valid_lens))
+        # 前馈神经网络 + 残差连接 + 归一化
+        return self.addnorm2(Y, self.ffn(Y))
+
+
+class TransformerEncoder(Encoder):
+    """Transformer 编码器
+
+    该编码器由嵌入层（Embedding）、位置编码（Positional Encoding）、
+    多个 Transformer 编码器块（EncoderBlock）组成。
+    """
+
+    def __init__(self, vocab_size, key_size, query_size, value_size,
+                 num_hiddens, norm_shape, ffn_num_input, ffn_num_hiddens,
+                 num_heads, num_layers, dropout, use_bias=False, **kwargs):
+        """
+        参数：
+        vocab_size: int，词汇表大小
+        key_size: int，键（key）的维度
+        query_size: int，查询（query）的维度
+        value_size: int，值（value）的维度
+        num_hiddens: int，隐藏单元的维度
+        norm_shape: tuple，层规范化的形状
+        ffn_num_input: int，前馈神经网络的输入维度
+        ffn_num_hiddens: int，前馈神经网络的隐藏层维度
+        num_heads: int，多头注意力的头数
+        num_layers: int，编码器块的层数
+        dropout: float，Dropout 概率
+        use_bias: bool，是否在注意力计算中使用偏置
+        """
+        super(TransformerEncoder, self).__init__(**kwargs)
+        self.num_hiddens = num_hiddens
+
+        # 词嵌入层：将输入索引映射到指定维度的嵌入向量
+        self.embedding = nn.Embedding(vocab_size, num_hiddens)
+
+        # 位置编码：引入位置信息，使模型能够识别序列顺序
+        self.pos_encoding = PositionalEncoding(num_hiddens, dropout)
+
+        # 由多个 Transformer 编码器块组成的序列
+        self.blks = nn.Sequential()
+        for i in range(num_layers):
+            self.blks.add_module(
+                'block' + str(i),
+                EncoderBlock(key_size, query_size, value_size, num_hiddens,
+                             norm_shape, ffn_num_input, ffn_num_hiddens,
+                             num_heads, dropout, use_bias)
+            )
+
+    def forward(self, X, valid_lens, *args):
+        """
+        前向传播：
+        1. 计算嵌入表示，并进行缩放
+        2. 加入位置编码，使模型具有顺序信息
+        3. 通过多个 Transformer 编码器块处理输入
+        4. 记录每层的注意力权重
+
+        参数：
+        X: 张量，输入序列，形状为 (batch_size, num_tokens)
+        valid_lens: 张量，有效序列长度，用于掩蔽填充部分
+
+        返回：
+        处理后的张量，形状为 (batch_size, num_tokens, num_hiddens)
+        """
+        # 计算词嵌入，并进行缩放，使其数值范围更适合位置编码
+        # 由于位置编码的值在 [-1, 1] 之间，因此嵌入乘以 sqrt(num_hiddens)
+        X = self.pos_encoding(self.embedding(X) * math.sqrt(self.num_hiddens))
+        self.attention_weights = [None] * len(self.blks)
+        for i, blk in enumerate(self.blks):
+            X = blk(X, valid_lens)
+            self.attention_weights[
+                i] = blk.attention.attention.attention_weights
+        return X
+
+
+class DecoderBlock(nn.Module):
+    """解码器中第 i 个块：包括两次多头注意力和一层前馈神经网络"""
+
+    def __init__(self, key_size, query_size, value_size, num_hiddens,
+                 norm_shape, ffn_num_input, ffn_num_hiddens, num_heads,
+                 dropout, i, **kwargs):
+        """
+        初始化解码器块
+
+        参数：
+        key_size, query_size, value_size: 注意力机制中的键、查询和值的维度
+        num_hiddens: 多头注意力和前馈网络的输出维度
+        norm_shape: 层归一化的输入形状
+        ffn_num_input: 前馈神经网络的输入维度
+        ffn_num_hiddens: 前馈神经网络的隐藏层维度
+        num_heads: 注意力头的数量
+        dropout: Dropout 概率
+        i: 解码器块的索引（用于状态的存取）
+        """
+        super(DecoderBlock, self).__init__(**kwargs)
+        self.i = i
+        # 第一个多头注意力：对解码器输入做掩蔽自注意力（masked self-attention）
+        self.attention1 = MultiHeadAttention(
+            key_size, query_size, value_size, num_hiddens, num_heads, dropout)
+        self.addnorm1 = AddNorm(norm_shape, dropout)
+        # 第二个多头注意力：对编码器输出做注意力（encoder-decoder attention）
+        self.attention2 = MultiHeadAttention(
+            key_size, query_size, value_size, num_hiddens, num_heads, dropout)
+        self.addnorm2 = AddNorm(norm_shape, dropout)
+        # 前馈网络部分
+        self.ffn = PositionWiseFFN(ffn_num_input, ffn_num_hiddens, num_hiddens)
+        self.addnorm3 = AddNorm(norm_shape, dropout)
+
+    def forward(self, X, state):
+        """
+        前向传播
+
+        参数：
+        X: 当前解码器的输入，形状 (batch_size, tgt_seq_len, num_hiddens)
+        state:
+            state[0]: 编码器输出，用作第二个注意力层的键和值
+            state[1]: 编码器的有效长度，用于掩蔽 padding
+            state[2]: 解码器中每个块的缓存 key/value，用于预测时自回归推理
+
+        返回：
+        输出 (batch_size, tgt_seq_len, num_hiddens)，以及更新后的 state
+        """
+        enc_outputs, enc_valid_lens = state[0], state[1]
+        # key_values 缓存自注意力历史信息（用于预测阶段）
+        if state[2][self.i] is None:
+            key_values = X  # 初始化：当前时间步的输入即为 key 和 value
+        else:
+            # 累积历史信息：拼接当前时间步输入和已有 key_values
+            key_values = torch.cat((state[2][self.i], X), axis=1)
+        state[2][self.i] = key_values  # 更新缓存
+
+        if self.training:
+            # 训练阶段：构造解码器注意力掩码（避免未来信息泄露）
+            batch_size, num_steps, _ = X.shape
+            dec_valid_lens = torch.arange(
+                1, num_steps + 1, device=X.device).repeat(batch_size, 1)
+        else:
+            # 推理阶段：逐步解码，因此无需掩蔽
+            dec_valid_lens = None
+
+        # 第一个多头注意力：对解码器当前输入进行掩蔽自注意力
+        X2 = self.attention1(X, key_values, key_values, dec_valid_lens)
+        Y = self.addnorm1(X, X2)  # 残差连接 + 层归一化
+
+        # 第二个多头注意力：解码器对编码器输出进行注意力
+        Y2 = self.attention2(Y, enc_outputs, enc_outputs, enc_valid_lens)
+        Z = self.addnorm2(Y, Y2)  # 残差连接 + 层归一化
+
+        # 前馈网络处理 + 残差连接 + 层归一化
+        return self.addnorm3(Z, self.ffn(Z)), state
+
+
+class TransformerDecoder(AttentionDecoder):
+    """Transformer 解码器"""
+
+    def __init__(self, vocab_size, key_size, query_size, value_size,
+                 num_hiddens, norm_shape, ffn_num_input, ffn_num_hiddens,
+                 num_heads, num_layers, dropout, **kwargs):
+        """
+        初始化 Transformer 解码器
+
+        参数说明：
+        vocab_size: 词表大小
+        key_size, query_size, value_size: 多头注意力中键、查询、值的维度
+        num_hiddens: 隐藏单元数，也是词嵌入和位置编码的维度
+        norm_shape: 层归一化的输入形状
+        ffn_num_input: 前馈神经网络输入维度
+        ffn_num_hiddens: 前馈神经网络隐藏层维度
+        num_heads: 注意力头数
+        num_layers: 解码器块的数量
+        dropout: dropout 比例
+        """
+        super(TransformerDecoder, self).__init__(**kwargs)
+        self.num_hiddens = num_hiddens
+        self.num_layers = num_layers
+
+        # 词嵌入层，将输入 token 转换为向量
+        self.embedding = nn.Embedding(vocab_size, num_hiddens)
+
+        # 位置编码（带 dropout），加入序列位置信息
+        self.pos_encoding = PositionalEncoding(num_hiddens, dropout)
+
+        # 多个解码器块堆叠（每个块是 DecoderBlock）
+        self.blks = nn.Sequential()
+        for i in range(num_layers):
+            self.blks.add_module("block" + str(i),
+                                 DecoderBlock(key_size, query_size, value_size, num_hiddens,
+                                              norm_shape, ffn_num_input, ffn_num_hiddens,
+                                              num_heads, dropout, i))
+
+        # 输出层：将隐藏状态映射到词表大小
+        self.dense = nn.Linear(num_hiddens, vocab_size)
+
+    def init_state(self, enc_outputs, enc_valid_lens, *args):
+        """
+        初始化解码器状态
+
+        返回值：
+        - enc_outputs: 编码器输出
+        - enc_valid_lens: 编码器输入的有效长度，用于掩蔽注意力
+        - [None] * num_layers: 每个解码器块的自注意力缓存（预测时用）
+        """
+        return [enc_outputs, enc_valid_lens, [None] * self.num_layers]
+
+    def forward(self, X, state):
+        """
+        前向传播
+
+        参数：
+        - X: 解码器输入（token ID 序列）
+        - state: 编码器输出和解码器状态信息
+
+        返回：
+        - 输出 logits: 用于生成词的预测分布
+        - 更新后的状态
+        """
+        # 嵌入并添加位置信息，然后缩放
+        X = self.pos_encoding(self.embedding(X) * math.sqrt(self.num_hiddens))
+
+        # 初始化注意力权重存储列表（2层，每层包含每个 block 的权重）
+        self._attention_weights = [[None] * len(self.blks) for _ in range(2)]
+
+        # 依次通过每一个解码器块
+        for i, blk in enumerate(self.blks):
+            X, state = blk(X, state)
+            # 记录自注意力权重（用于分析或可视化）
+            self._attention_weights[0][i] = blk.attention1.attention.attention_weights
+            # 记录编码器-解码器注意力权重
+            self._attention_weights[1][i] = blk.attention2.attention.attention_weights
+
+        # 通过输出层投影为词表大小，得到每个位置的预测结果
+        return self.dense(X), state
+
+    @property
+    def attention_weights(self):
+        """返回保存的注意力权重"""
+        return self._attention_weights
+
+
+def load_data_zh_en(batch_size, num_steps, n=10000):
+    """返回中英翻译数据集的迭代器和词表"""
+    data_zh_path = 'sample_data/news-commentary-v13.zh-en.zh'
+    data_en_path = 'sample_data/news-commentary-v13.zh-en.en'
+    with open(data_zh_path, 'r') as f:
+        lines_zh = list(islice(f, n))
+    with open(data_en_path, 'r') as f:
+        lines_en = list(islice(f, n))
+    tokens_zh = [jieba.lcut(line.strip().replace(' ', '')) for line in lines_zh]
+    tokens_en = [re.findall(r"\w+|[^\w\s]", line) for line in lines_en]
+    vocab_zh = d2l.Vocab(tokens_zh, min_freq=1, reserved_tokens=['<pad>', '<bos>', '<eos>'])
+    vocab_en = d2l.Vocab(tokens_en, min_freq=1, reserved_tokens=['<pad>', '<bos>', '<eos>'])
+    src_array, src_valid_len = build_array_nmt(tokens_zh, vocab_zh, num_steps)
+    tgt_array, tgt_valid_len = build_array_nmt(tokens_en, vocab_en, num_steps)
+    data_arrays = (src_array, src_valid_len, tgt_array, tgt_valid_len)
+    data_iter = load_array(data_arrays, batch_size)
+    return data_iter, vocab_zh, vocab_en
