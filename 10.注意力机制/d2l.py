@@ -1351,46 +1351,75 @@ def masked_softmax(X, valid_lens):
 
 
 class AdditiveAttention(nn.Module):
-    """加性注意力（Additive Attention）类"""
+    """加性注意力（Additive Attention）
+
+    通过学习可加权的打分函数（score function）来计算 query 与 key 之间的注意力权重。
+    """
 
     def __init__(self, key_size, query_size, num_hiddens, dropout, **kwargs):
-        super().__init__(**kwargs)
-        # 定义键（key）的线性变换层，将输入的键映射到隐藏层空间
+        """
+        初始化加性注意力机制模块。
+
+        参数：
+        key_size:    输入中 key 的特征维度大小。
+        query_size:  输入中 query 的特征维度大小。
+        num_hiddens: 用于将 key 和 query 映射到统一空间的隐藏单元数（打分函数中的隐藏层维度）。
+        dropout:     dropout 随机失活比例。
+        """
+        super(AdditiveAttention, self).__init__(**kwargs)
+        # 将 key 映射到 num_hiddens 维度
         self.W_k = nn.Linear(key_size, num_hiddens, bias=False)
-        # 定义查询（query）的线性变换层，将输入的查询映射到隐藏层空间
+        # 将 query 映射到 num_hiddens 维度
         self.W_q = nn.Linear(query_size, num_hiddens, bias=False)
-        # 定义一个线性变换层，用于将注意力得分计算为一个标量
+        # 打分权重，输出为一个标量
         self.w_v = nn.Linear(num_hiddens, 1, bias=False)
-        # 定义dropout层，用于防止过拟合
+        # dropout 用于注意力权重上防止过拟合
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, queries, keys, values, valid_lens):
         """
-        前向传播方法，计算加性注意力的输出。
+        计算注意力输出。
 
         参数：
-        查询、键和值的形状为（批量大小，步数或词元序列长度，特征大小）
-        queries: 查询张量，形状为 (batch_size, query_len, query_dim)
-        keys: 键张量，形状为 (batch_size, key_len, key_dim)
-        values: 值张量，形状为 (batch_size, key_len, value_dim)
-        valid_lens: 有效长度，表示哪些键是有效的，通常用于掩蔽填充部分，形状为 (batch_size, query_len)
+        queries:    查询张量，形状为 (batch_size, num_queries, query_size)
+        keys:       键张量，形状为 (batch_size, num_kv_pairs, key_size)
+        values:     值张量，形状为 (batch_size, num_kv_pairs, value_dim)
+        valid_lens: 每个样本中有效 key 的数量，用于掩码无效部分（padding）
 
-        返回值：
-        注意力汇聚输出的形状为（批量大小，查询的步数，值的维度）
-        返回加权后的值张量，形状为 (batch_size, query_len, value_dim)
+        返回：
+        输出张量，形状为 (batch_size, num_queries, value_dim)
         """
-        # 将查询和键分别映射到隐藏空间
+
+        print(queries.shape)
+        print(keys.shape)
+
+        # 将 query 和 key 映射到相同维度空间
         queries, keys = self.W_q(queries), self.W_k(keys)
-        # 进行广播求和：查询和键的每一对进行加和，形状变为 (batch_size, query_len, key_len, num_hiddens)
+
+        print(queries.shape)
+        print(keys.shape)
+
+        # 扩展维度以便广播相加：
+        # queries: (batch_size, num_queries, 1, num_hiddens)
+        # keys:    (batch_size, 1, num_kv_pairs, num_hiddens)
+        # 相加后 features: (batch_size, num_queries, num_kv_pairs, num_hiddens)
+        print(queries.unsqueeze(2).shape)
+        print(keys.unsqueeze(1).shape)
         features = queries.unsqueeze(2) + keys.unsqueeze(1)
-        # 通过tanh激活函数增加非线性变换
+        print(features.shape)
+        # 应用非线性激活函数（加性注意力中使用 tanh）
         features = torch.tanh(features)
-        # 使用w_v计算加性注意力得分。输出形状为 (batch_size, query_len, key_len)
+        print(features)
+        # w_v 映射到一个打分值，再 squeeze 去除最后一维：
+        # scores: (batch_size, num_queries, num_kv_pairs)
         scores = self.w_v(features).squeeze(-1)
-        # 计算注意力权重，使用softmax进行归一化，注意masking掉无效位置
+        print(scores)
+        print(scores.shape)
+        # 对打分进行 masked softmax，掩掉无效的 key
         self.attention_weights = masked_softmax(scores, valid_lens)
-        # 使用注意力权重对值进行加权求和，得到最终的加性注意力输出
-        # 使用 dropout 防止过拟合
+
+        # 使用注意力权重加权求和 value：
+        # 输出形状：(batch_size, num_queries, value_dim)
         return torch.bmm(self.dropout(self.attention_weights), values)
 
 

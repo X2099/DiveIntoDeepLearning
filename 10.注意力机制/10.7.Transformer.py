@@ -9,24 +9,24 @@ from torch import nn
 
 import d2l
 
-num_hiddens, num_layers, dropout, batch_size, num_steps = 32, 2, 0.1, 64, 10
-lr, num_epochs, device = 0.005, 200, d2l.try_gpu()
-ffn_num_input, ffn_num_hiddens, num_heads = 32, 64, 4
-key_size, query_size, value_size = 32, 32, 32
-norm_shape = [32]
-
-train_iter, src_vocab, tgt_vocab = d2l.load_data_nmt(batch_size, num_steps)
-
-encoder = d2l.TransformerEncoder(
-    len(src_vocab), key_size, query_size, value_size, num_hiddens,
-    norm_shape, ffn_num_input, ffn_num_hiddens, num_heads,
-    num_layers, dropout)
-decoder = d2l.TransformerDecoder(
-    len(tgt_vocab), key_size, query_size, value_size, num_hiddens,
-    norm_shape, ffn_num_input, ffn_num_hiddens, num_heads,
-    num_layers, dropout)
-net = d2l.EncoderDecoder(encoder, decoder)
-d2l.train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
+# num_hiddens, num_layers, dropout, batch_size, num_steps = 32, 2, 0.1, 64, 10
+# lr, num_epochs, device = 0.005, 200, d2l.try_gpu()
+# ffn_num_input, ffn_num_hiddens, num_heads = 32, 64, 4
+# key_size, query_size, value_size = 32, 32, 32
+# norm_shape = [32]
+#
+# train_iter, src_vocab, tgt_vocab = d2l.load_data_nmt(batch_size, num_steps)
+#
+# encoder = d2l.TransformerEncoder(
+#     len(src_vocab), key_size, query_size, value_size, num_hiddens,
+#     norm_shape, ffn_num_input, ffn_num_hiddens, num_heads,
+#     num_layers, dropout)
+# decoder = d2l.TransformerDecoder(
+#     len(tgt_vocab), key_size, query_size, value_size, num_hiddens,
+#     norm_shape, ffn_num_input, ffn_num_hiddens, num_heads,
+#     num_layers, dropout)
+# net = d2l.EncoderDecoder(encoder, decoder)
+# d2l.train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
 
 # num_hiddens, num_layers, dropout, batch_size, num_steps = 32, 2, 0.1, 64, 64
 # lr, num_epochs, device = 0.01, 100, d2l.try_gpu()
@@ -71,13 +71,13 @@ d2l.train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
 # state = [encoder_blk(X, valid_lens), valid_lens, [None]]
 # print(decoder_blk(X, state)[0].shape)  # 输出：torch.Size([2, 100, 24])
 
-# add_norm = d2l.AddNorm(normalized_shape=[3, 4], dropout=0.5)
-# add_norm.eval()
-# X = torch.ones((2, 3, 4))
-# Y = torch.ones((2, 3, 4))
-#
-# print(add_norm(X, Y))
-# print(add_norm(X, Y).shape)  # 输出：torch.Size([2, 3, 4])
+add_norm = d2l.AddNorm(normalized_shape=[3, 4], dropout=0.5)
+add_norm.eval()
+X = torch.ones((2, 3, 4))
+Y = torch.ones((2, 3, 4))
+
+print(add_norm(X, Y))
+print(add_norm(X, Y).shape)  # 输出：torch.Size([2, 3, 4])
 
 # ln = nn.LayerNorm(2)
 # bn = nn.BatchNorm1d(2)
