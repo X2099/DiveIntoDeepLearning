@@ -1240,9 +1240,13 @@ def train_seq2seq(net, data_iter, lr, num_epochs, tgt_vocab, device):
         for batch in data_iter:
             optimizer.zero_grad()
             X, X_valid_len, Y, Y_valid_len = [x.to(device) for x in batch]
+            print('X =>', X.shape)
+            print('Y =>', Y.shape)
             bos = torch.tensor([tgt_vocab['<bos>']] * Y.shape[0], device=device).reshape(-1, 1)
             dec_input = torch.cat([bos, Y[:, :-1]], 1)  # 强制教学
+            print('dec_input =>', dec_input.shape)
             Y_hat, _ = net(X, dec_input, X_valid_len)
+            print('Y_hat =>', Y_hat.shape)
             l = loss(Y_hat, Y, Y_valid_len)
             l.sum().backward()  # 损失函数的标量进行“反向传播”
             grad_clipping(net, 1)
@@ -1250,10 +1254,17 @@ def train_seq2seq(net, data_iter, lr, num_epochs, tgt_vocab, device):
             optimizer.step()
             with torch.no_grad():
                 metric.add(l.sum(), num_tokens)
+            # debug
+            # break
+
         if (epoch + 1) % 10 == 0:
             animator.add(epoch + 1, (metric[0] / metric[1],))
             print(f'epoch {epoch + 1} loss {metric[0] / metric[1]:.3f}, {metric[1] / timer.stop():.1f} '
                   f'tokens/sec on {str(device)}')
+        # debug
+        print('-' * 120)
+        if epoch == 0:
+            break
 
     print(f'loss {metric[0] / metric[1]:.3f}, {metric[1] / timer.stop():.1f} '
           f'tokens/sec on {str(device)}')
@@ -1283,7 +1294,9 @@ def predict_seq2seq(net, src_sentence, src_vocab, tgt_vocab, num_steps,
     for _ in range(num_steps):
         Y, dec_state = net.decoder(dec_X, dec_state)
         # 我们使用具有预测最高可能性的词元，作为解码器在下一时间步的输入
+        print('dec_X ==> ', dec_X.shape)
         dec_X = Y.argmax(dim=2)
+
         pred = dec_X.squeeze(dim=0).type(torch.int32).item()
         # 保存注意力权重（稍后讨论）
         if save_attention_weights:
@@ -1346,6 +1359,7 @@ def masked_softmax(X, valid_lens):
         X,  # 对应有效位置保留原值
         torch.tensor(-1e6)  # 对于无效位置，使用极小值 -1e6
     )
+    print('X =>', X)
     # 执行 Softmax 操作，返回 Softmax 的结果，dim=-1 表示按最后一个维度（num_classes）计算 Softmax
     return F.softmax(X.reshape(shape), dim=-1)
 
@@ -1821,13 +1835,19 @@ class DecoderBlock(nn.Module):
         else:
             # 累积历史信息：拼接当前时间步输入和已有 key_values
             key_values = torch.cat((state[2][self.i], X), axis=1)
+
+        # print(X)
         state[2][self.i] = key_values  # 更新缓存
+
+        print(self.i, '*' * 100)
+        print(state[2][self.i].shape)
 
         if self.training:
             # 训练阶段：构造解码器注意力掩码（避免未来信息泄露）
             batch_size, num_steps, _ = X.shape
             dec_valid_lens = torch.arange(
                 1, num_steps + 1, device=X.device).repeat(batch_size, 1)
+            print('dec_valid_lens =>', dec_valid_lens)
         else:
             # 推理阶段：逐步解码，因此无需掩蔽
             dec_valid_lens = None
