@@ -9,6 +9,7 @@ from agents.base_agent import build_agent
 
 def run():
     agent = build_agent()
+
     print("🔧 智能体已启动... 输入 exit 退出")
 
     while True:
