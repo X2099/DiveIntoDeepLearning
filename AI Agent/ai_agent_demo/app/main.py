@@ -18,7 +18,7 @@ class Query(BaseModel):
 
 @app.post("/chat")
 async def chat(q: Query):
-    response = agent.run(q.query)
+    response = agent.invoke(q.query)
     return {"response": response}
 
 
@@ -28,5 +28,5 @@ async def upload_pdf(file: UploadFile = File(...)):
     path = f"temp_{file.filename}"
     with open(path, "wb") as f:
         f.write(content)
-    response = agent.run(f"请阅读 {path} 文件内容")
+    response = agent.invoke(f"请阅读 {path} 文件内容")
     return {"response": response}
