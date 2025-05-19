@@ -14,8 +14,9 @@ def load_pdf_content(file_path: str) -> str:
         return f"文件 {file_path} 不存在"
     loader = PyPDFLoader(file_path)
     docs = loader.load()
-    return "\n".join([doc.page_content for doc in docs])
-
+    # return "\n".join([doc.page_content for doc in docs])
+    # return " ".join([doc.page_content for doc in docs])
+    return ''
 
 if __name__ == '__main__':
     result = load_pdf_content("../data/sample-local-pdf.pdf")

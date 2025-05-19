@@ -31,7 +31,8 @@ def build_agent():
     tools = [
         Tool(name="Tavily Search", func=search_web, description="用于在线搜索最新的互联网信息"),
         Tool(name="PDF Reader", func=load_pdf_content, description="适合读取本地PDF文档内容"),
-        Tool(name="PDF Semantic Search", func=retrieve_doc, description="对PDF内容进行语义检索"),
+        Tool(name="PDF Semantic Search", func=retrieve_doc,
+             description="对《中国国家标准-电动汽车用动力蓄电池安全要求》内容进行语义检索"),
         Tool(name="Image Captioning", func=caption_image, description="根据图像生成文字描述")
     ]
     llm = ChatOpenAI(
@@ -45,6 +46,7 @@ def build_agent():
         template="""
     你是一个多工具智能体，具备搜索、文档读取、图像识别和文档语义检索能力。
     请根据用户的问题选择合适的工具，并给出准确简洁的答案。
+    请使用纯文本输出答案，不要加任何格式。
 
     你可以调用的工具有：
     - Tavily Search：用于搜索网络信息
@@ -76,18 +78,17 @@ def build_agent():
     agent = initialize_agent(
         tools,
         llm,
-        agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+        agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
         prompt=prompt,
         memory=memory,
-        verbose=True,
-        # handle_parsing_errors=True
+        verbose=True
     )
     return agent
 
 
 if __name__ == '__main__':
     ai_agent = build_agent()
-    rsp = ai_agent.invoke({"input": "请同时完成：1) 将'人工智能将改变未来'翻译成英语 2) 计算235×47 3) 写一首关于春天的五行诗"})
+    rsp = ai_agent.invoke({"input": "电池包若在交流电路中，绝缘电阻应不小于多少？"})
     print(rsp)
     """
     > Entering new AgentExecutor chain...
