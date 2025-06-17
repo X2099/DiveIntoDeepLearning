@@ -1,9 +1,11 @@
 import os
+import sqlite3
 from typing import TypedDict, Literal, Optional
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tracers import LangChainTracer
 from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import StateGraph, END
 
 # LangSmith配置
@@ -144,18 +146,31 @@ workflow.add_edge("投诉问题", END)
 # 设置入口点
 workflow.set_entry_point("classify")
 
-# 编译应用
-app = workflow.compile()
+# 编译时启用检查点
+conn = sqlite3.connect("checkpoints.sqlite", check_same_thread=False)
+memory = SqliteSaver(conn)
+app = workflow.compile(checkpointer=memory)
 
 if __name__ == "__main__":
+    # 测试用例
     test_cases = [
-        "你们的工作时间是几点？",
-        "我的账号登录不上了",
-        "我对你们的服务非常不满意！"
+        ("user_001", "你们的工作时间是几点？"),
+        ("user_002", "我的账号无法登录"),
+        ("user_003", "我要投诉你们的服务态度")
     ]
 
-    for query in test_cases:
-        print("用户提问: " + query)
-        result = app.invoke({"user_input": query})
-        print("识别类型: " + str(result.get("intent")))
-        print("系统回复: " + str(result.get("response")))
+    for user_id, query in test_cases:
+        print(f"\n[会话 {user_id}] 用户提问: {query}")
+
+        # 执行工作流（关键修正）
+        result = app.invoke(
+            {"user_input": query},
+            config={"configurable": {"thread_id": user_id}}
+        )
+
+        print(f"问题类型: {result.get('intent')}")
+        print(f"系统回复: {result.get('response')}")
+
+        # 验证检查点
+        checkpoint = memory.get_tuple({"configurable": {"thread_id": user_id}})
+        print(f"检查点状态: {checkpoint}")
