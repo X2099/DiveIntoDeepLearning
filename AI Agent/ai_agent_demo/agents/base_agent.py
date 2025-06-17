@@ -17,8 +17,13 @@ from tools.doc_reader import load_pdf_content
 from tools.vectorstore import build_vectorstore_from_pdf
 from multimodal.image_captioning import caption_image
 
+from langsmith import traceable
+
+os.environ['LANGCHAIN_TRACING_V2'] = 'true'
+
 # 构建文档向量检索器
-vectorstore = build_vectorstore_from_pdf("data/GB+38031-2025.pdf")
+vectorstore = build_vectorstore_from_pdf(
+    r"D:\Coding\MyCode\Learning\DiveIntoDeepLearning\AI Agent\ai_agent_demo\data\GB+38031-2025.pdf")
 retriever = vectorstore.as_retriever()
 
 
@@ -27,6 +32,7 @@ def retrieve_doc(query: str) -> str:
     return "\n".join([doc.page_content for doc in docs])
 
 
+@traceable
 def build_agent():
     tools = [
         Tool(name="Tavily Search", func=search_web, description="用于在线搜索最新的互联网信息"),
@@ -51,7 +57,7 @@ def build_agent():
     你可以调用的工具有：
     - Tavily Search：用于搜索网络信息
     - PDF Reader：用于获取指定本地PDF的全部内容
-    - PDF Semantic Search：用于对PDF进行基于语义的问答
+    - PDF Semantic Search：用于对《电动汽车用动力蓄电池安全要求》内容进行基于语义的问答
     - Image Captioning：根据上传的图像生成文字描述
 
     请尽量以自然语言回答问题，如果需要使用工具，请先思考，再行动。
@@ -88,7 +94,7 @@ def build_agent():
 
 if __name__ == '__main__':
     ai_agent = build_agent()
-    rsp = ai_agent.invoke({"input": "电池包若在交流电路中，绝缘电阻应不小于多少？"})
+    rsp = ai_agent.invoke({"input": "北京今天天气怎么样？"})
     print(rsp)
     """
     > Entering new AgentExecutor chain...
