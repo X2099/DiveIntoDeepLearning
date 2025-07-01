@@ -155,6 +155,7 @@ cython_debug/
 data/
 */data/
 *.pth
+微调大模型/chatgpt2-chinese/
 
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
