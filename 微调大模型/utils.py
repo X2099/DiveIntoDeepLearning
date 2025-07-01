@@ -1,3 +1,5 @@
+import torch
+
 chat_data = [
     {"text": "<user>你好</user><bot>你好！请问有什么可以帮您？</bot>"},
     {"text": "<user>你是谁？</user><bot>我是一个由GPT模型训练的中文智能助手。</bot>"},
@@ -543,4 +545,19 @@ chat_data = [
     {"text": "<user>什么是K-means？</user><bot>基于距离的经典聚类算法。</bot>"},
     {"text": "<user>怎样学习缩时摄影？</user><bot>从简单主体开始，学习间隔设置，多实践。</bot>"}
 ]
-print(len(chat_data))
+
+
+# ------------------------------------------------------------------
+# 调用你微调后的中文 GPT 模型，根据用户输入的提示（prompt）生成对话回复
+# ------------------------------------------------------------------
+def chat(model, tokenizer, prompt, max_new_tokens=50):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    outputs = model.generate(
+        inputs["input_ids"],
+        max_new_tokens=max_new_tokens,
+        eos_token_id=tokenizer.convert_tokens_to_ids("</bot>"),
+        pad_token_id=tokenizer.pad_token_id,
+        do_sample=False,  # 贪心解码，最保守
+    )
+    return tokenizer.decode(outputs[0], skip_special_tokens=True)

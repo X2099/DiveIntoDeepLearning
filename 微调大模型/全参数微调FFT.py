@@ -3,7 +3,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingA
 from transformers import DataCollatorForLanguageModeling
 from datasets import Dataset
 
-from train_data import chat_data
+from utils import chat_data
 
 # ----------------------------
 # 1. 自动检测设备 (GPU 优先，否则 CPU)
