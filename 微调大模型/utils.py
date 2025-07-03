@@ -561,3 +561,22 @@ def chat(model, tokenizer, prompt, max_new_tokens=50):
         do_sample=False,  # 贪心解码，最保守
     )
     return tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+
+def chat_instruction(tokenizer, model, instruction, input_text=""):
+    """
+    简单预测函数
+    """
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    prompt = f"<s>指令：{instruction}\n输入：{input_text}\n输出：" if input_text else f"<s>指令：{instruction}\n输出："
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    outputs = model.generate(
+        inputs["input_ids"],
+        max_new_tokens=100,
+        do_sample=True,
+        temperature=0.7,
+        top_p=0.9,
+        pad_token_id=tokenizer.pad_token_id,
+        eos_token_id=tokenizer.eos_token_id
+    )
+    return tokenizer.decode(outputs[0], skip_special_tokens=True)
